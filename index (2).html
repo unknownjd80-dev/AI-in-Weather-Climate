@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Smart AI Camera</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  <style>
+    /* Starry Night Background */
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: #fff;
+      text-align: center;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    body::before, body::after {
+      content: "";
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: transparent url("https://www.transparenttextures.com/patterns/stardust.png") repeat;
+      animation: moveStars 100s linear infinite;
+      z-index: 0;
+      opacity: 0.6;
+      pointer-events: none;
+    }
+    body::after {
+      animation-duration: 200s;
+      opacity: 0.3;
+    }
+
+    @keyframes moveStars {
+      from { background-position: 0 0; }
+      to { background-position: -10000px 5000px; }
+    }
+
+    body::-webkit-scrollbar {
+      width: 10px;
+    }
+    body::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    body::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, #00eaff, #ff6ec7);
+      border-radius: 10px;
+    }
+    body::-webkit-scrollbar-thumb:hover {
+      background: linear-gradient(180deg, #ff6ec7, #00eaff);
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      margin: 30px 0 20px;
+      text-shadow: 0 0 15px #00eaff, 0 0 25px #00eaff;
+      position: relative;
+      z-index: 1;
+    }
+
+    .btn {
+      background: linear-gradient(90deg, #00eaff, #ff6ec7);
+      color: #fff;
+      border: none;
+      padding: 12px 25px;
+      border-radius: 30px;
+      font-size: 1.2rem;
+      cursor: pointer;
+      margin: 10px;
+      box-shadow: 0 0 15px rgba(0, 234, 255, 0.7);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      z-index: 1;
+      position: relative;
+    }
+
+    .btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 20px rgba(255, 110, 199, 0.9);
+    }
+
+    #webcam-container, #image-container {
+      border-radius: 15px;
+      overflow: hidden;
+      box-shadow: 0 8px 20px rgba(0, 234, 255, 0.6);
+      margin: 20px 0;
+      position: relative;
+      z-index: 1;
+      max-width: 95vw;
+    }
+
+    canvas, img {
+      border-radius: 15px;
+      max-width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    #label-container {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      width: 350px;
+      max-width: 90vw;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 40px;
+    }
+
+    .prediction-box {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 12px 15px;
+      border-radius: 10px;
+      font-size: 1rem;
+      text-align: left;
+      box-shadow: 0 4px 15px rgba(0, 234, 255, 0.3);
+      backdrop-filter: blur(8px);
+    }
+
+    .label {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .progress-bar {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      overflow: hidden;
+      height: 14px;
+      margin-top: 6px;
+    }
+
+    .progress {
+      background: linear-gradient(90deg, #ff6ec7, #00eaff);
+      height: 100%;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    #upload-input {
+      margin: 10px 0 20px;
+      z-index: 1;
+      position: relative;
+    }
+
+    /* Loading Screen */
+    #loading-screen {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.85);
+      color: #00eaff;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      z-index: 9999;
+      backdrop-filter: blur(10px);
+    }
+
+    .loader {
+      border: 8px solid rgba(255, 255, 255, 0.1);
+      border-top: 8px solid #00eaff;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <h1>Smart AI Camera</h1>
+  <button id="start-btn" class="btn" onclick="init()">🚀 Start AI Camera</button>
+  <button id="stop-btn" class="btn" onclick="stopCamera()" style="display:none;">🛑 Stop AI Camera</button>
+  <input type="file" id="upload-input" accept="image/*" class="btn" onchange="handleImageUpload(event)">
+
+  <div id="webcam-container"></div>
+  <div id="image-container"></div>
+  <div id="label-container"></div>
+
+  <!-- Loading screen -->
+  <div id="loading-screen">
+    <div class="loader"></div>
+    <div id="loading-message">Loading...</div>
+  </div>
+
+  <script>
+    let model, webcam, labelContainer, maxPredictions, animationFrame;
+
+    const modelURL = "https://teachablemachine.withgoogle.com/models/tHWO35cni/model.json";
+    const metadataURL = "https://teachablemachine.withgoogle.com/models/tHWO35cni/metadata.json";
+
+    function showLoading(message = "Loading...") {
+      document.getElementById("loading-message").innerText = message;
+      document.getElementById("loading-screen").style.display = "flex";
+    }
+
+    function hideLoading() {
+      document.getElementById("loading-screen").style.display = "none";
+    }
+
+    async function init() {
+      showLoading("Starting AI Camera...");
+
+      document.getElementById("start-btn").style.display = "none"; 
+      document.getElementById("stop-btn").style.display = "inline-block"; 
+
+      try {
+        model = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
+      } catch (err) {
+        alert("⚠️ Failed to load AI model.");
+        resetButtons();
+        hideLoading();
+        return;
+      }
+
+      const flip = true;
+      webcam = new tmImage.Webcam(400, 400, flip);
+      try {
+        await webcam.setup();
+        await webcam.play();
+      } catch (err) {
+        alert("⚠️ Could not access webcam.");
+        resetButtons();
+        hideLoading();
+        return;
+      }
+
+      if (animationFrame) cancelAnimationFrame(animationFrame); // prevent multiple loops
+      animationFrame = window.requestAnimationFrame(loop);
+
+      document.getElementById("webcam-container").innerHTML = "";
+      document.getElementById("image-container").innerHTML = "";
+      document.getElementById("webcam-container").appendChild(webcam.canvas);
+      setupLabels();
+
+      hideLoading();
+    }
+
+    async function loop() {
+      webcam.update();
+      await predict(webcam.canvas);
+      animationFrame = window.requestAnimationFrame(loop);
+    }
+
+    function setupLabels() {
+      labelContainer = document.getElementById("label-container");
+      labelContainer.innerHTML = "";
+      for (let i = 0; i < maxPredictions; i++) {
+        const box = document.createElement("div");
+        box.classList.add("prediction-box");
+
+        const label = document.createElement("div");
+        label.classList.add("label");
+        label.innerHTML = "Loading...";
+
+        const barContainer = document.createElement("div");
+        barContainer.classList.add("progress-bar");
+
+        const bar = document.createElement("div");
+        bar.classList.add("progress");
+
+        barContainer.appendChild(bar);
+        box.appendChild(label);
+        box.appendChild(barContainer);
+        labelContainer.appendChild(box);
+      }
+    }
+
+    async function predict(input) {
+      const prediction = await model.predict(input);
+      for (let i = 0; i < maxPredictions; i++) {
+        const box = labelContainer.childNodes[i];
+        const label = box.querySelector(".label");
+        const bar = box.querySelector(".progress");
+
+        const prob = (prediction[i].probability * 100).toFixed(2);
+        label.innerHTML = `${prediction[i].className}: ${prob}%`;
+        bar.style.width = prob + "%";
+      }
+    }
+
+    function stopCamera() {
+      if (webcam) {
+        webcam.stop();
+        webcam = null;
+      }
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+        animationFrame = null;
+      }
+      resetUI();
+    }
+
+    async function handleImageUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      showLoading("Processing Image...");
+      stopCamera();
+
+      if (!model) {
+        try {
+          model = await tmImage.load(modelURL, metadataURL);
+          maxPredictions = model.getTotalClasses();
+        } catch (err) {
+          alert("⚠️ Failed to load AI model.");
+          hideLoading();
+          return;
+        }
+      }
+
+      const img = document.createElement("img");
+      img.src = URL.createObjectURL(file);
+      img.onload = async () => {
+        document.getElementById("webcam-container").innerHTML = "";
+        document.getElementById("image-container").innerHTML = "";
+        document.getElementById("image-container").appendChild(img);
+        setupLabels();
+        await predict(img);
+        hideLoading();
+      };
+    }
+
+    function resetUI() {
+      document.getElementById("stop-btn").style.display = "none";
+      document.getElementById("start-btn").style.display = "inline-block";
+      document.getElementById("webcam-container").innerHTML = "";
+      document.getElementById("image-container").innerHTML = "";
+      document.getElementById("label-container").innerHTML = "";
+      document.getElementById("upload-input").value = "";
+    }
+
+    function resetButtons() {
+      document.getElementById("stop-btn").style.display = "none";
+      document.getElementById("start-btn").style.display = "inline-block";
+    }
+
+    // Enable Enter key to start
+    document.addEventListener("keydown", function(event) {
+      if (event.key === "Enter" && document.getElementById("start-btn").style.display !== "none") {
+        init();
+      }
+    });
+  </script>
+</body>
+</html>
